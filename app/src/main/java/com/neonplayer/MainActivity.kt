@@ -109,6 +109,7 @@ private fun NeonApp(onPlayer: (Player?) -> Unit) {
     val prefs = remember { PlayerPrefs(context) }
     var videos by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
     var selected by remember { mutableStateOf<VideoItem?>(null) }
+    var activeQueue by remember { mutableStateOf<List<Long>?>(null) }
     var tab by remember { mutableStateOf("الرئيسية") }
     var query by remember { mutableStateOf("") }
     var folderFilter by remember { mutableStateOf<String?>(null) }
