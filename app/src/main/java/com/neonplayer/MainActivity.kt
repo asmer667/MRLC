@@ -13,12 +13,15 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Rational
+import android.util.Size
+import android.graphics.Bitmap
 import android.view.View
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -37,6 +40,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -67,12 +72,12 @@ import java.util.UUID
 import kotlin.math.abs
 import kotlin.math.max
 
-private val Ink = Color(0xFF090D12)
-private val Panel = Color(0xFF121A22)
-private val Panel2 = Color(0xFF18232D)
-private val Mint = Color(0xFF69E6D2)
-private val Violet = Color(0xFFB4A1FF)
-private val Muted = Color(0xFF91A0AD)
+private val Ink: Color @Composable get() = LocalNeonPalette.current.background
+private val Panel: Color @Composable get() = LocalNeonPalette.current.panel
+private val Panel2: Color @Composable get() = LocalNeonPalette.current.panel2
+private val Mint: Color @Composable get() = LocalNeonPalette.current.primary
+private val Violet: Color @Composable get() = LocalNeonPalette.current.secondary
+private val Muted: Color @Composable get() = LocalNeonPalette.current.muted
 
 data class VideoItem(
     val id: Long, val uri: Uri, val title: String, val displayName: String,
@@ -104,7 +109,6 @@ private fun NeonApp(onPlayer: (Player?) -> Unit) {
     val prefs = remember { PlayerPrefs(context) }
     var videos by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
     var selected by remember { mutableStateOf<VideoItem?>(null) }
-    var activeQueue by remember { mutableStateOf<List<Long>?>(null) }
     var tab by remember { mutableStateOf("الرئيسية") }
     var query by remember { mutableStateOf("") }
     var folderFilter by remember { mutableStateOf<String?>(null) }
@@ -141,9 +145,12 @@ private fun NeonApp(onPlayer: (Player?) -> Unit) {
     LaunchedEffect(resumeMap) { prefs.saveProgress(resumeMap) }
     LaunchedEffect(playlists) { prefs.savePlaylists(playlists) }
     LaunchedEffect(settings) { prefs.saveSettings(settings) }
+    LaunchedEffect(settings.iconStyle) { runCatching { applyLauncherIcon(context, settings.iconStyle) } }
 
     BackHandler(selected != null) { selected = null }
-    MaterialTheme(colorScheme = darkColorScheme(primary = Mint, secondary = Violet, background = Ink, surface = Panel, onBackground = Color.White, onSurface = Color.White)) {
+    val palette = currentPalette(settings)
+    CompositionLocalProvider(LocalNeonPalette provides palette) {
+    MaterialTheme(colorScheme = darkColorScheme(primary = palette.primary, secondary = palette.secondary, background = palette.background, surface = palette.panel, onBackground = Color.White, onSurface = Color.White)) {
         val active = selected
         if (active != null) {
             if (controller == null) {
@@ -158,7 +165,7 @@ private fun NeonApp(onPlayer: (Player?) -> Unit) {
                     onNext = {
                         val queue = activeQueue
                         if (queue != null) {
-                            val nextId = if (queue.isNotEmpty()) queue.getOrNull(queue.indexOf(active.id) + 1) else null
+                            val nextId = queue.getOrNull(queue.indexOf(active.id) + 1)
                             val nextVideo = videos.firstOrNull { it.id == nextId }
                             if (nextVideo != null) selected = nextVideo else activeQueue = null
                         } else {
@@ -196,6 +203,7 @@ private fun NeonApp(onPlayer: (Player?) -> Unit) {
                 }
             }
         }
+    }
     }
 
     if (networkDialog) NetworkDialog(onDismiss = { networkDialog = false }) { url ->
@@ -259,8 +267,96 @@ private fun VideoRow(item: VideoItem, favorite: Boolean, progress: Long, onClick
 
 @Composable
 private fun FolderScreen(videos: List<VideoItem>, modifier: Modifier = Modifier, onFolder: (String) -> Unit) {
-    val folders = videos.groupBy { it.folder }
-    LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { item { Text("المجلدات", color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.Bold) }; items(folders.entries.toList(), key = { it.key }) { entry -> Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(17.dp)).background(Panel).clickable { onFolder(entry.key) }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Folder, null, tint = Mint, modifier = Modifier.size(28.dp)); Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(entry.key, color = Color.White, fontWeight = FontWeight.SemiBold); Text("${entry.value.size} فيديو", color = Muted, fontSize = 11.sp) }; Icon(Icons.Default.ChevronRight, null, tint = Muted) } } }
+    var treeMode by remember { mutableStateOf(false) }
+    var gridMode by remember { mutableStateOf(false) }
+    var sortMode by remember { mutableStateOf("الاسم") }
+    val folders = videos.groupBy { it.folder }.entries.let { entries ->
+        when (sortMode) {
+            "عدد الفيديوهات" -> entries.sortedByDescending { it.value.size }
+            "الحجم" -> entries.sortedByDescending { e -> e.value.sumOf { it.size } }
+            else -> entries.sortedBy { it.key.lowercase(Locale.ROOT) }
+        }
+    }
+    LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("مكتبة المجلدات", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                    Text("${folders.size} مجلد • ${videos.size} فيديو", color = Muted, fontSize = 11.sp)
+                }
+                IconButton(onClick = { treeMode = !treeMode }) { Icon(if (treeMode) Icons.Default.AccountTree else Icons.Default.AccountTree, "عرض الشجرة", tint = Mint) }
+                IconButton(onClick = { gridMode = !gridMode }) { Icon(if (gridMode) Icons.Default.ViewList else Icons.Default.GridView, "تغيير العرض", tint = Mint) }
+            }
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("ترتيب حسب", color = Muted, fontSize = 11.sp)
+                listOf("الاسم", "عدد الفيديوهات", "الحجم").forEach { label ->
+                    FilterChip(selected = sortMode == label, onClick = { sortMode = label }, label = { Text(label, fontSize = 10.sp) })
+                }
+            }
+        }
+        if (gridMode && !treeMode) {
+            items(folders.chunked(2), key = { it.first().key }) { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    row.forEach { entry -> FolderCard(entry.key, entry.value, Modifier.weight(1f), onFolder) }
+                    if (row.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
+        } else {
+            items(folders, key = { it.key }) { entry ->
+                if (treeMode) {
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Panel).clickable { onFolder(entry.key) }.padding(horizontal = 13.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.ChevronRight, null, tint = Muted)
+                        Icon(Icons.Default.Folder, null, tint = Violet, modifier = Modifier.size(23.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) { Text(entry.key, color = Color.White, fontWeight = FontWeight.SemiBold); Text("${entry.value.size} فيديو • ${formatSize(entry.value.sumOf { it.size })}", color = Muted, fontSize = 10.sp) }
+                        Text("فتح", color = Mint, fontSize = 11.sp)
+                    }
+                } else FolderCard(entry.key, entry.value, Modifier.fillMaxWidth(), onFolder)
+            }
+        }
+    }
+}
+
+@Composable
+private fun FolderCard(name: String, items: List<VideoItem>, modifier: Modifier = Modifier, onFolder: (String) -> Unit) {
+    val previews = items.take(4)
+    Row(modifier.clip(RoundedCornerShape(20.dp)).background(Brush.linearGradient(listOf(Color(0xFF222638), Color(0xFF111722)))).clickable { onFolder(name) }.padding(11.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(104.dp, 86.dp).clip(RoundedCornerShape(16.dp)).background(Color(0xFF34354F)).padding(7.dp)) {
+            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                previews.chunked(2).forEach { pair ->
+                    Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        pair.forEach { video -> VideoThumb(video, Modifier.weight(1f).fillMaxHeight()) }
+                        if (pair.size == 1) Spacer(Modifier.weight(1f))
+                    }
+                }
+                if (previews.isEmpty()) Icon(Icons.Default.Folder, null, tint = Violet, modifier = Modifier.align(Alignment.CenterHorizontally))
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text(name, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text("${items.size} فيديو • ${formatSize(items.sumOf { it.size })}", color = Muted, fontSize = 10.sp)
+            Text("${items.maxOfOrNull { it.dateAdded }?.let { java.text.SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(java.util.Date(it * 1000)) } ?: "مجلد وسائط"}", color = Muted.copy(.8f), fontSize = 9.sp)
+        }
+        Icon(Icons.Default.PlayCircle, null, tint = Violet, modifier = Modifier.size(28.dp))
+    }
+}
+
+@Composable
+private fun VideoThumb(item: VideoItem, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    var bitmap by remember(item.uri) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(item.uri) {
+        bitmap = withContext(Dispatchers.IO) {
+            if (Build.VERSION.SDK_INT >= 29) runCatching { context.contentResolver.loadThumbnail(item.uri, Size(240, 160), null) }.getOrNull() else null
+        }
+    }
+    Box(modifier.clip(RoundedCornerShape(7.dp)).background(Panel2), contentAlignment = Alignment.Center) {
+        bitmap?.let { Image(it.asImageBitmap(), contentDescription = item.title, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+            ?: Icon(Icons.Default.Movie, null, tint = Muted, modifier = Modifier.size(18.dp))
+    }
 }
 
 @Composable
@@ -274,12 +370,55 @@ private fun PlaylistScreen(playlists: List<Playlist>, videos: List<VideoItem>, o
 
 @Composable
 private fun SettingsScreen(settings: PlayerSettings, onChange: (PlayerSettings) -> Unit, modifier: Modifier = Modifier) {
+    var primaryHex by remember(settings.primaryColor) { mutableStateOf("#%06X".format(settings.primaryColor and 0xFFFFFF)) }
+    var secondaryHex by remember(settings.secondaryColor) { mutableStateOf("#%06X".format(settings.secondaryColor and 0xFFFFFF)) }
+    var backgroundHex by remember(settings.backgroundColor) { mutableStateOf("#%06X".format(settings.backgroundColor and 0xFFFFFF)) }
     LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { Text("الإعدادات", color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.Bold); Text("خيارات التشغيل والإيماءات تُحفظ تلقائياً", color = Muted, fontSize = 12.sp) }
-        item { SettingSwitch("حفظ موضع المشاهدة", "استئناف الفيديو من آخر موضع", settings.rememberPosition) { onChange(settings.copy(rememberPosition = it)) }; SettingSwitch("التشغيل التلقائي", "الانتقال إلى الفيديو التالي", settings.autoplay) { onChange(settings.copy(autoplay = it)) }; SettingSwitch("إيماءات السطوع والصوت", "السحب العمودي يميناً ويساراً", settings.verticalGestures) { onChange(settings.copy(verticalGestures = it)) }; SettingSwitch("السحب للبحث", "السحب الأفقي لتقديم الفيديو وتأخيره", settings.swipeSeek) { onChange(settings.copy(swipeSeek = it)) } }
-        item { Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(17.dp)).background(Panel).padding(15.dp)) { Text("القفز بالنقر المزدوج: ${settings.doubleTapSeekSeconds} ثانية", color = Color.White); Slider(settings.doubleTapSeekSeconds.toFloat(), { onChange(settings.copy(doubleTapSeekSeconds = it.toInt())) }, valueRange = 5f..30f, steps = 4, colors = SliderDefaults.colors(thumbColor = Mint, activeTrackColor = Mint)) } }
-        item { Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(17.dp)).background(Panel).padding(15.dp)) { Text("سرعة الضغط المطوّل: ${settings.longPressSpeed}×", color = Color.White); Slider(settings.longPressSpeed, { onChange(settings.copy(longPressSpeed = it)) }, valueRange = 1.25f..3f, colors = SliderDefaults.colors(thumbColor = Mint, activeTrackColor = Mint)) } }
-        item { Text("Neon Player • إصدار التطوير 1.1", color = Muted, fontSize = 11.sp) }
+        item { Text("الإعدادات والتخصيص", color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.Bold); Text("تحكم في محرك التشغيل والمظهر وأيقونة التطبيق", color = Muted, fontSize = 12.sp) }
+        item { Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(17.dp)).background(Panel).padding(15.dp)) {
+            Text("المظهر والألوان", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            SettingSwitch("وضع AMOLED الأسود", "خلفية سوداء للمناطق الرئيسية", settings.amoled) { onChange(settings.copy(amoled = it)) }
+            Text("ألوان جاهزة", color = Muted, fontSize = 11.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                listOf("Mint" to Triple(0xFF69E6D2,0xFFB4A1FF,0xFF090D12), "Violet" to Triple(0xFFC084FC,0xFFFB7185,0xFF100B18), "Ocean" to Triple(0xFF38BDF8,0xFF2DD4BF,0xFF071521), "Amber" to Triple(0xFFFBBF24,0xFFFB7185,0xFF17100A)).forEach { (name, colors) ->
+                    Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(Color(colors.third)).clickable { onChange(settings.copy(primaryColor=colors.first, secondaryColor=colors.second, backgroundColor=colors.third)) }.padding(9.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) { Box(Modifier.size(13.dp).clip(CircleShape).background(Color(colors.first))); Box(Modifier.size(13.dp).clip(CircleShape).background(Color(colors.second))) }
+                        Text(name, color = Color.White, fontSize = 10.sp)
+                    }
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            Text("اللون الأساسي", color = Color.White, fontSize = 12.sp)
+            OutlinedTextField(primaryHex, { primaryHex = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("HEX مثل #69E6D2") })
+            Text("اللون الثانوي", color = Color.White, fontSize = 12.sp)
+            OutlinedTextField(secondaryHex, { secondaryHex = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("HEX مثل #B4A1FF") })
+            Text("لون الخلفية", color = Color.White, fontSize = 12.sp)
+            OutlinedTextField(backgroundHex, { backgroundHex = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("HEX مثل #090D12") })
+            Button(onClick = { onChange(settings.copy(primaryColor=parseHexColor(primaryHex, settings.primaryColor), secondaryColor=parseHexColor(secondaryHex, settings.secondaryColor), backgroundColor=parseHexColor(backgroundHex, settings.backgroundColor))) }, modifier = Modifier.fillMaxWidth()) { Text("تطبيق الألوان") }
+        } }
+        item { Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(17.dp)).background(Panel).padding(15.dp)) {
+            Text("أيقونة التطبيق", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Text("اختر نمطاً لأيقونة المشغّل في الشاشة الرئيسية", color = Muted, fontSize = 11.sp)
+            listOf("mint" to "نيون تركوازي", "violet" to "بنفسجي", "amber" to "كهرماني", "mono" to "أحادي أبيض").forEach { (id, label) ->
+                Row(Modifier.fillMaxWidth().clickable { onChange(settings.copy(iconStyle=id)) }.padding(vertical=8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(34.dp).clip(RoundedCornerShape(10.dp)).background(when(id) { "violet" -> Color(0xFF9B5DE5); "amber" -> Color(0xFFF4A261); "mono" -> Color.White; else -> Color(0xFF20C9B0) }), contentAlignment = Alignment.Center) { Icon(Icons.Default.PlayArrow, null, tint = Color(0xFF101018)) }
+                    Text(label, color = Color.White, modifier = Modifier.weight(1f).padding(start=10.dp))
+                    RadioButton(selected = settings.iconStyle == id, onClick = { onChange(settings.copy(iconStyle=id)) })
+                }
+            }
+        } }
+        item { Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(17.dp)).background(Panel).padding(15.dp)) {
+            Text("إعدادات التشغيل والإيماءات", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            SettingSwitch("حفظ موضع المشاهدة", "استئناف الفيديو من آخر موضع", settings.rememberPosition) { onChange(settings.copy(rememberPosition = it)) }
+            SettingSwitch("التشغيل التلقائي", "الانتقال إلى الفيديو التالي", settings.autoplay) { onChange(settings.copy(autoplay = it)) }
+            SettingSwitch("إيماءات السطوع والصوت", "السحب العمودي يميناً ويساراً", settings.verticalGestures) { onChange(settings.copy(verticalGestures = it)) }
+            SettingSwitch("السحب للبحث", "السحب الأفقي لتقديم الفيديو وتأخيره", settings.swipeSeek) { onChange(settings.copy(swipeSeek = it)) }
+            Text("القفز بالنقر المزدوج: ${settings.doubleTapSeekSeconds} ثانية", color = Color.White)
+            Slider(settings.doubleTapSeekSeconds.toFloat(), { onChange(settings.copy(doubleTapSeekSeconds = it.toInt())) }, valueRange = 5f..30f, steps = 4, colors = SliderDefaults.colors(thumbColor = Mint, activeTrackColor = Mint))
+            Text("سرعة الضغط المطوّل: ${"%.2f".format(settings.longPressSpeed)}×", color = Color.White)
+            Slider(settings.longPressSpeed, { onChange(settings.copy(longPressSpeed = it)) }, valueRange = 0.2f..4f, steps = 18, colors = SliderDefaults.colors(thumbColor = Mint, activeTrackColor = Mint))
+        } }
+        item { Text("Neon Player • محرر الألوان والأيقونات • إعدادات تحفظ تلقائياً", color = Muted, fontSize = 10.sp) }
     }
 }
 

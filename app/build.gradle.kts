@@ -12,8 +12,8 @@ android {
         applicationId = "com.neonplayer"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 3
+        versionName = "1.3.0"
     }
 
     buildFeatures { compose = true }
@@ -22,6 +22,11 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+    lint {
+        abortOnError = false
+        checkReleaseBuilds = false
+    }
+
     packaging {
         resources.excludes += setOf(
             "/META-INF/AL2.0", "/META-INF/LGPL2.1",

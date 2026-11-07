@@ -10,7 +10,12 @@ data class PlayerSettings(
     val doubleTapSeekSeconds: Int = 10,
     val longPressSpeed: Float = 2f,
     val verticalGestures: Boolean = true,
-    val swipeSeek: Boolean = true
+    val swipeSeek: Boolean = true,
+    val primaryColor: Long = 0xFF69E6D2,
+    val secondaryColor: Long = 0xFFB4A1FF,
+    val backgroundColor: Long = 0xFF090D12,
+    val amoled: Boolean = false,
+    val iconStyle: String = "mint"
 )
 
 data class Playlist(val id: String, val name: String, val videoIds: List<Long>)
@@ -55,7 +60,12 @@ class PlayerPrefs(context: Context) {
         doubleTapSeekSeconds = prefs.getInt("double_seek", 10),
         longPressSpeed = prefs.getFloat("long_speed", 2f),
         verticalGestures = prefs.getBoolean("vertical_gestures", true),
-        swipeSeek = prefs.getBoolean("swipe_seek", true)
+        swipeSeek = prefs.getBoolean("swipe_seek", true),
+        primaryColor = prefs.getLong("primary_color", 0xFF69E6D2),
+        secondaryColor = prefs.getLong("secondary_color", 0xFFB4A1FF),
+        backgroundColor = prefs.getLong("background_color", 0xFF090D12),
+        amoled = prefs.getBoolean("amoled", false),
+        iconStyle = prefs.getString("icon_style", "mint") ?: "mint"
     )
-    fun saveSettings(s: PlayerSettings) { prefs.edit().putBoolean("remember", s.rememberPosition).putBoolean("autoplay", s.autoplay).putInt("double_seek", s.doubleTapSeekSeconds).putFloat("long_speed", s.longPressSpeed).putBoolean("vertical_gestures", s.verticalGestures).putBoolean("swipe_seek", s.swipeSeek).apply() }
+    fun saveSettings(s: PlayerSettings) { prefs.edit().putBoolean("remember", s.rememberPosition).putBoolean("autoplay", s.autoplay).putInt("double_seek", s.doubleTapSeekSeconds).putFloat("long_speed", s.longPressSpeed).putBoolean("vertical_gestures", s.verticalGestures).putBoolean("swipe_seek", s.swipeSeek).putLong("primary_color", s.primaryColor).putLong("secondary_color", s.secondaryColor).putLong("background_color", s.backgroundColor).putBoolean("amoled", s.amoled).putString("icon_style", s.iconStyle).apply() }
 }

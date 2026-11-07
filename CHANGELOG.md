@@ -1,11 +1,12 @@
 # Changelog
 
-## 1.1.0
-- Persisted favorites, resume positions, playlists and gesture preferences.
-- Added playlist creation, deletion and adding videos from the library.
-- Added MediaSessionService background playback.
-- Added embedded audio/subtitle track selection and external subtitle import.
-- Added Picture-in-Picture support and automatic entry while playing.
-- Added direct network URL playback for HTTP(S), HLS, DASH and RTSP.
-- Added configurable double-tap seek, long-press speed, swipe seek and vertical brightness/volume gestures.
-- Added GitHub Actions Android debug build workflow.
+## 1.3.0
+- Added custom HEX colors for primary, secondary, and background colors.
+- Added Mint, Violet, Ocean, and Amber palettes.
+- Added AMOLED black mode.
+- Added four launcher icon variants through Android activity aliases.
+- Persisted theme and icon preferences.
+- Documented libmpv integration status and the required native build/integration work. libmpv is not yet integrated.
+
+## 1.2.0
+- Folder cards with real video frame thumbnails, list/grid/tree display, and sorting.
